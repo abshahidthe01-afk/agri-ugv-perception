@@ -1,0 +1,14 @@
+# data, runs and weights stay outside the repository
+data/
+runs/
+predictions/
+*.pt
+*.pth
+*.ckpt
+*.zip
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/

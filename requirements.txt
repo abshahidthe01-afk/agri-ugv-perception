@@ -1,0 +1,10 @@
+# PyTorch is installed first, for your GPU (see README), e.g. torch 2.5.1 + CUDA 12.1.
+numpy
+pillow
+segmentation-models-pytorch==0.5.0
+# the PhenoBench development kit (data loader, official evaluation, submission validator);
+# its evaluation needs torchmetrics 0.10.3, which needs pkg_resources (removed in setuptools 81)
+phenobench[eval]==0.1.0
+setuptools<81
+pytest
+flake8
