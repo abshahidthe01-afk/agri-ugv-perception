@@ -29,6 +29,24 @@ def plots_near(plots, poses, reach):
     return ids
 
 
+def plot_of(plots, pose, inset=0.0):
+    """Return the ID of the plot that holds pose (x, y, ...) at least 'inset' inside, or None."""
+    from agri_ugv_field.plants import plot_frame
+
+    for plot in plots:
+        centre, along, across = plot_frame(plot)
+        d = np.asarray(pose[:2], dtype=float) - centre
+        if (abs(d @ along) <= plot['length'] / 2 - inset
+                and abs(d @ across) <= plot['width'] / 2 - inset):
+            return plot['plot_id']
+    return None
+
+
+def weed_plots(folder):
+    """Return the IDs of the plots with weed stickers in a model folder (weeds_<id>.obj)."""
+    return {int(f.stem.split('_')[1]) for f in (Path(folder) / 'meshes').glob('weeds_*.obj')}
+
+
 def crop_meshes(plots, ground, ids, seed=1):
     """
     Return [(vertices, uvs, faces, opaque mask)] of the crop plants of the plots 'ids'.

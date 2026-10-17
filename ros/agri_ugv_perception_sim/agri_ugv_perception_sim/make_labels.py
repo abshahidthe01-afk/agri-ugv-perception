@@ -5,12 +5,16 @@ Command-line tool: soil / crop / weed labels for recorded pictures, as a dataset
         [--extras ~/agri_data/models/field_extras]
 
 The recording (record_pictures) holds sets of pictures with depth, the cameras' places and
-calibrations, and the robot's true pose. Each picture gets its labels (labels.py) from the
-true crop plants and the weed stickers around the robot (scene.py). The folder has the
-layout of a PhenoBench split, so the same code reads both: images/<name>.png (the picture)
-and semantics/<name>.png (8 bit: 0 soil, 1 crop, 2 weed, 255 left out: the robot itself),
-named <recording>_<set>_<camera>; pictures.csv (one row per picture: where it was taken and
-its share of each label) and check/<recording>_<set>.png (pictures above their labels).
+calibrations, and the robot's true pose. Only the sets taken in a plot with weeds (one of
+the extras model) are used, with the robot at least --inset metres inside the plot, so that
+the cameras see the soil sheet and the weeds and not the ground between plots (--all-sets
+uses every set). Each picture gets its labels (labels.py) from the true crop plants and the
+weed stickers around the robot (scene.py). The folder has the layout of a PhenoBench split,
+so the same code reads both: images/<name>.png (the picture) and semantics/<name>.png (8
+bit: 0 soil, 1 crop, 2 weed, 255 left out: the robot itself), named
+<recording>_<set>_<camera>; pictures.csv (one row per picture: where it was taken, in
+which plot, and its share of each label) and check/<recording>_<set>.png (pictures above
+their labels).
 Running it again for the same recording replaces its pictures. For each picture it prints
 the shares and how often the labels agree with the robot's plant/soil colour threshold
 (excess green above 0.1, agri_ugv_phenotyping.colour) on the labelled pixels.
@@ -24,13 +28,13 @@ from agri_ugv_field.ground import ground_height, read_obj_grid
 from agri_ugv_field.layout import read_layout_csv
 from agri_ugv_perception_sim.labels import CROP, IGNORE, label_picture, SOIL, WEED
 from agri_ugv_perception_sim.make_field_extras import installed
-from agri_ugv_perception_sim.scene import crop_meshes, plots_near, points_near, to_robot, \
-    weed_meshes
+from agri_ugv_perception_sim.scene import crop_meshes, plot_of, plots_near, points_near, \
+    to_robot, weed_meshes, weed_plots
 import numpy as np
 
 COLOURS = {SOIL: (150, 110, 70), CROP: (40, 200, 40), WEED: (230, 40, 40), IGNORE: (0, 0, 0)}
-COLUMNS = ['name', 'recording', 'set', 'camera', 't', 'x', 'y', 'yaw', 'soil', 'crop', 'weed',
-           'ignore']
+COLUMNS = ['name', 'recording', 'set', 'camera', 't', 'x', 'y', 'yaw', 'plot', 'soil', 'crop',
+           'weed', 'ignore']
 
 
 def coloured(labels):
@@ -61,6 +65,10 @@ def main(argv=None):
                         help='metres between sample points on the plants (0.003)')
     parser.add_argument('--reach', type=float, default=1.5,
                         help='metres around the robot to sample (1.5)')
+    parser.add_argument('--inset', type=float, default=0.4,
+                        help='metres the robot is inside a plot with weeds at least (0.4)')
+    parser.add_argument('--all-sets', action='store_true',
+                        help='label every set, wherever the robot was')
     args = parser.parse_args(argv)
 
     layout = args.layout or installed('agri_ugv_field', 'data', 'must_c_field_plots.csv')
@@ -82,11 +90,15 @@ def main(argv=None):
     def ground(x, y):
         return ground_height(grid, x, y)
 
-    near = plots_near(plots, poses, args.reach)
+    weedy = [p for p in plots if p['plot_id'] in weed_plots(args.extras)]
+    where = [plot_of(weedy, pose, args.inset) for pose in poses]
+    sets = [s for s in range(len(poses)) if args.all_sets or where[s] is not None]
+    near = plots_near(plots, poses[sets], args.reach)
     crops = crop_meshes(plots, ground, near, args.seed)
     weeds = weed_meshes(args.extras)
-    print(f'{args.recording}: {len(poses)} sets x {len(cameras)} cameras; crops of plot(s) '
-          f'{", ".join(str(i) for i in sorted(near)) or "none"}, {len(weeds)} weed mesh(es) '
+    print(f'{args.recording}: {len(sets)} of {len(poses)} sets '
+          f'({"all" if args.all_sets else f"in the {len(weedy)} plots with weeds"}) x '
+          f'{len(cameras)} cameras; crops of {len(near)} plot(s), {len(weeds)} weed mesh(es) '
           f'from {args.extras}')
 
     output = Path(args.output)
@@ -98,7 +110,8 @@ def main(argv=None):
     rows = list(csv.DictReader(open(table))) if table.exists() else []
     rows = [r for r in rows if r['recording'] != stem]
     print('set camera | soil  crop  weed  left out % | colour threshold agrees %')
-    for s, pose in enumerate(poses):
+    for s in sets:
+        pose = poses[s]
         classes = {CROP: to_robot(points_near(crops, pose, args.reach, args.step), pose),
                    WEED: to_robot(points_near(weeds, pose, args.reach, args.step), pose)}
         panels = []
@@ -119,6 +132,7 @@ def main(argv=None):
             rows.append({'name': name, 'recording': stem, 'set': s, 'camera': int(camera),
                          't': f'{recording["truth"][s, 0]:.2f}', 'x': f'{pose[0]:.3f}',
                          'y': f'{pose[1]:.3f}', 'yaw': f'{pose[5]:.4f}',
+                         'plot': '' if where[s] is None else where[s],
                          **{key: f'{share[label]:.3f}' for key, label in
                             (('soil', SOIL), ('crop', CROP), ('weed', WEED),
                              ('ignore', IGNORE))}})
@@ -130,5 +144,5 @@ def main(argv=None):
         writer = csv.DictWriter(f, fieldnames=COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
-    print(f'{len(poses) * len(cameras)} labelled pictures in {output} (images/, semantics/, '
+    print(f'{len(sets) * len(cameras)} labelled pictures in {output} (images/, semantics/, '
           f'check/, pictures.csv)')
