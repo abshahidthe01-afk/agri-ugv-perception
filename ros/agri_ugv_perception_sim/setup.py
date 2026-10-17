@@ -24,7 +24,9 @@ setup(
         'console_scripts': [
             'make_cutouts = agri_ugv_perception_sim.make_cutouts:main',
             'make_field_extras = agri_ugv_perception_sim.make_field_extras:main',
+            'make_labels = agri_ugv_perception_sim.make_labels:main',
             'make_soil_texture = agri_ugv_perception_sim.make_soil_texture:main',
+            'record_pictures = agri_ugv_perception_sim.record_pictures:main',
         ],
     },
 )

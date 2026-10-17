@@ -12,8 +12,14 @@
   <exec_depend>agri_ugv_field</exec_depend>
   <exec_depend>agri_ugv_gazebo</exec_depend>
   <exec_depend>agri_ugv_navigation</exec_depend>
+  <exec_depend>agri_ugv_phenotyping</exec_depend>
   <exec_depend>agri_ugv_terrain</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
   <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>rosgraph_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
