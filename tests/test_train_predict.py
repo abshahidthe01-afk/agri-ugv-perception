@@ -76,3 +76,15 @@ def test_simulated_pictures_are_scored_at_their_own_size(phenobench, simulated, 
     classes = np.asarray(Image.open(written[0]))
     assert classes.shape == (64, 96) and set(np.unique(classes)) <= {0, 1, 2}
     assert set(scores) == {'soil', 'crop', 'weed', 'mIoU'}
+
+
+def test_a_fixed_share_of_simulated_pictures(phenobench, simulated, tmp_path):
+    run(phenobench, tmp_path / 'half', 1, '--real', '2', '--sim', str(simulated),
+        '--sim-scale', '1', '--epoch-size', '8', '--sim-share', '0.5')
+    assert len(list(csv.DictReader(open(tmp_path / 'half' / 'log.csv')))) == 1
+    for extra in (['--real', '2', '--sim', str(simulated), '--sim-share', '0.5'],
+                  ['--real', '0', '--sim', str(simulated), '--epoch-size', '8',
+                   '--sim-share', '0.5'],
+                  ['--sim', str(simulated), '--epoch-size', '8', '--sim-share', '1.5']):
+        with pytest.raises(ValueError, match='sim-share'):
+            run(phenobench, tmp_path / 'bad', 1, '--sim-scale', '1', *extra)

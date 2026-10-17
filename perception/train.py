@@ -9,15 +9,16 @@ random; --real 0: none), plus the simulated pictures of --sim (make_labels of
 agri_ugv_perception_sim; enlarged by --sim-scale to PhenoBench's pixel size; only those of
 --sim-plots if given). Every epoch goes once through them in random squares (data.py), or
 draws --epoch-size of them at random, so that runs with few pictures still take enough
-steps. Cross-entropy weighted per class (the PhenoBench baseline's weights: weeds cover only
-about 0.5 % of the pixels); pixels labelled IGNORE (the robot itself) do not count. AdamW;
-the learning rate rises over the first epoch and then falls linearly to zero; the new
-decoder learns 10 times faster than the pretrained encoder (as in SegFormer). Every
---val-every epochs the whole PhenoBench validation pictures are scored (IoU of soil, crop
-and weed, partial plants counted as whole ones, as the official evaluation does), and the
-simulated ones of --val-sim if given (columns sim_*). Writes <out>/log.csv (one row per
-epoch), <out>/last.pt (to continue with --resume) and <out>/best.pt (the best PhenoBench
-validation mIoU so far).
+steps; with --sim-share, that share of the drawn pictures is simulated and the rest real,
+however many pictures each set has. Cross-entropy weighted per class (the PhenoBench
+baseline's weights: weeds cover only about 0.5 % of the pixels); pixels labelled IGNORE
+(the robot itself) do not count. AdamW; the learning rate rises over the first epoch and
+then falls linearly to zero; the new decoder learns 10 times faster than the pretrained
+encoder (as in SegFormer). Every --val-every epochs the whole PhenoBench validation
+pictures are scored (IoU of soil, crop and weed, partial plants counted as whole ones, as
+the official evaluation does), and the simulated ones of --val-sim if given (columns
+sim_*). Writes <out>/log.csv (one row per epoch), <out>/last.pt (to continue with
+--resume) and <out>/best.pt (the best PhenoBench validation mIoU so far).
 """
 
 import argparse
@@ -88,6 +89,9 @@ def main(argv=None):
     parser.add_argument('--val-sim-plots', help='only the simulated pictures of these plots')
     parser.add_argument('--epoch-size', type=int, default=0,
                         help='training pictures drawn per epoch (default: each once)')
+    parser.add_argument('--sim-share', type=float,
+                        help='share of simulated pictures in each epoch (needs --epoch-size; '
+                        'default: as many as there are)')
     parser.add_argument('--model', default='segformer_b0', choices=MODELS)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch', type=int, default=8)
@@ -131,10 +135,21 @@ def main(argv=None):
         raise ValueError('no training pictures: --real 0 needs --sim')
     train_set = torch.utils.data.ConcatDataset(parts)
     generator = torch.Generator().manual_seed(args.seed)
-    sampler = (torch.utils.data.RandomSampler(train_set, replacement=True,
-                                              num_samples=args.epoch_size, generator=generator)
-               if args.epoch_size else
-               torch.utils.data.RandomSampler(train_set, generator=generator))
+    if args.sim_share is not None:
+        if not (args.sim and args.real != 0 and args.epoch_size and 0 < args.sim_share < 1):
+            raise ValueError('--sim-share needs real and simulated pictures, --epoch-size and '
+                             'a share between 0 and 1')
+        real_part, sim_part = parts
+        share = args.sim_share
+        weights = torch.cat([torch.full((len(real_part),), (1 - share) / len(real_part)),
+                             torch.full((len(sim_part),), share / len(sim_part))])
+        sampler = torch.utils.data.WeightedRandomSampler(weights, args.epoch_size,
+                                                         replacement=True, generator=generator)
+    elif args.epoch_size:
+        sampler = torch.utils.data.RandomSampler(train_set, replacement=True,
+                                                 num_samples=args.epoch_size, generator=generator)
+    else:
+        sampler = torch.utils.data.RandomSampler(train_set, generator=generator)
     loader = torch.utils.data.DataLoader(
         train_set, batch_size=args.batch, sampler=sampler, num_workers=args.workers,
         drop_last=len(sampler) >= args.batch, pin_memory=amp)
