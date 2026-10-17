@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>agri_ugv_perception_sim</name>
+  <version>0.0.0</version>
+  <description>Camera pictures for crop/weed perception from the agri-ugv-sim field: soil with real detail and weeds from real field pictures in chosen plots.</description>
+  <maintainer email="abshahidthe01@gmail.com">Abdullah Bin Shahid</maintainer>
+  <license>MIT</license>
+
+  <depend>python3-numpy</depend>
+  <exec_depend>python3-pil</exec_depend>
+  <exec_depend>agri_ugv_field</exec_depend>
+  <exec_depend>agri_ugv_gazebo</exec_depend>
+  <exec_depend>agri_ugv_navigation</exec_depend>
+  <exec_depend>agri_ugv_terrain</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
