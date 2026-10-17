@@ -47,3 +47,32 @@ def test_class_maps_and_submission_zip_have_the_official_form(phenobench, tmp_pa
     names = zipfile.ZipFile(tmp_path / 'test.zip').namelist()
     assert names == ['semantics/', 'semantics/phenoBench_00000.png',
                      'semantics/phenoBench_00001.png']
+
+
+def test_training_on_simulated_pictures_mixed_with_a_few_real_ones(phenobench, simulated,
+                                                                   tmp_path):
+    out = tmp_path / 'mixed'
+    run(phenobench, out, 2, '--real', '1', '--sim', str(simulated), '--sim-plots', '7',
+        '--sim-scale', '1', '--epoch-size', '6', '--val-sim', str(simulated),
+        '--val-sim-plots', '8')
+    rows = list(csv.DictReader(open(out / 'log.csv')))
+    assert len(rows) == 2 and all(0 <= float(r['sim_mIoU']) <= 100 for r in rows)
+    run(phenobench, tmp_path / 'sim_only', 1, '--real', '0', '--sim', str(simulated),
+        '--sim-scale', '1')
+    with pytest.raises(ValueError, match='no training pictures'):
+        run(phenobench, tmp_path / 'none', 1, '--real', '0')
+    with pytest.raises(ValueError, match='only 4'):
+        run(phenobench, tmp_path / 'too_many', 1, '--real', '5')
+
+
+def test_simulated_pictures_are_scored_at_their_own_size(phenobench, simulated, tmp_path):
+    run(phenobench, tmp_path / 'run', 1)
+    scores = predict(['--checkpoint', str(tmp_path / 'run' / 'best.pt'), '--data',
+                      str(simulated.parent), '--split', simulated.name, '--scale', '2',
+                      '--plots', '8', '--out', str(tmp_path / 'sim'), '--workers', '0',
+                      '--cpu'])
+    written = sorted((tmp_path / 'sim' / 'semantics').glob('*.png'))
+    assert [p.name for p in written] == ['beet_002_16.png', 'beet_003_16.png']
+    classes = np.asarray(Image.open(written[0]))
+    assert classes.shape == (64, 96) and set(np.unique(classes)) <= {0, 1, 2}
+    assert set(scores) == {'soil', 'crop', 'weed', 'mIoU'}

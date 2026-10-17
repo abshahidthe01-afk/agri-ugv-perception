@@ -16,6 +16,11 @@ as crop/weed, as in the official evaluation).
     python scripts/eval_erfnet_baseline.py --data <PhenoBench folder>
         --baselines <phenobench-baselines clone> --ckpt <semantic-seg-erfnet.ckpt>
         --out <prediction folder> [--split val] [--limit 20]
+
+For simulated pictures (agri_ugv_perception_sim, make_labels), --data is the folder that
+holds the dataset folder and --split its name; --scale enlarges each picture before the
+network sees it (2.8: to PhenoBench's pixel size), and the class maps come out at the
+picture's own size. Pixels labelled 255 (the robot itself) are not scored.
 """
 
 import argparse
@@ -101,6 +106,25 @@ def standardise(picture):
     return ((x - mean) / (std + 1e-17)).unsqueeze(0)
 
 
+def class_map(network, x, scale=1.0):
+    """
+    Return the classes (H, W) of a 1 x 3 x H x W input, seen enlarged by scale.
+
+    The enlarged size is rounded to whole multiples of 32 pixels; the network's output is
+    brought back to the picture's own size before the arg-max.
+    """
+    size = x.shape[-2:]
+    if scale != 1:
+        x = torch.nn.functional.interpolate(
+            x, size=[32 * max(1, round(n * scale / 32)) for n in size], mode='bilinear',
+            align_corners=False)
+    logits = network(x)
+    if logits.shape[-2:] != size:
+        logits = torch.nn.functional.interpolate(logits, size=size, mode='bilinear',
+                                                 align_corners=False)
+    return logits.argmax(dim=1)[0]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument('--data', required=True, type=Path,
@@ -108,7 +132,9 @@ def main(argv=None):
     parser.add_argument('--baselines', required=True, type=Path, help='phenobench-baselines clone')
     parser.add_argument('--ckpt', required=True, type=Path, help='semantic-seg-erfnet.ckpt')
     parser.add_argument('--out', required=True, type=Path, help='prediction folder to write')
-    parser.add_argument('--split', default='val', choices=['train', 'val', 'test'])
+    parser.add_argument('--split', default='val', help='train, val, test or a dataset name')
+    parser.add_argument('--scale', type=float, default=1.0,
+                        help='enlarge the pictures by this for the network (1.0)')
     parser.add_argument('--limit', type=int, default=0, help='only the first N pictures (0: all)')
     parser.add_argument('--cpu', action='store_true', help='run on the CPU')
     args = parser.parse_args(argv)
@@ -141,7 +167,7 @@ def main(argv=None):
             torch.cuda.synchronize()
         start = time.perf_counter()
         with torch.no_grad():
-            prediction = network(x).argmax(dim=1)[0]
+            prediction = class_map(network, x, args.scale)
         if device.type == 'cuda':
             torch.cuda.synchronize()
         times.append(time.perf_counter() - start)

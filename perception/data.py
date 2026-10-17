@@ -11,8 +11,13 @@ of the 8 ways (the camera looks straight down, so every way is a real view), and
 colours changed a little; scoring uses the whole pictures as they are. Pictures are scaled
 to 0..1 and normalised with the ImageNet means and spreads the pretrained encoder expects:
 one fixed normalisation for all pictures, so bare soil stays soil-coloured.
+
+The simulated pictures of agri_ugv_perception_sim (ros/, make_labels) come in the same
+layout, with labels 0, 1, 2 and IGNORE for the pixels that show the robot itself. Their
+pixels are about 2.8 times as large as PhenoBench's, so they are read enlarged by 'scale'.
 """
 
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -20,21 +25,47 @@ from PIL import Image
 import torch
 
 CLASSES = ('soil', 'crop', 'weed')
+IGNORE = 255            # pixels left out of training and scoring
 MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
 def three_classes(labels):
-    """Map PhenoBench labels to soil 0, crop 1, weed 2 (partial plants count as whole)."""
+    """Map labels to soil 0, crop 1, weed 2 (partial plants count as whole); keep IGNORE."""
     labels = np.asarray(labels)
     if labels.ndim == 3:
         labels = labels[..., 0]
     out = labels.astype(np.int64)
     out[out == 3] = 1
     out[out == 4] = 2
-    if out.max(initial=0) > 2 or out.min(initial=0) < 0:
+    if np.any(((out > 2) & (out != IGNORE)) | (out < 0)):
         raise ValueError(f'unexpected label values {np.unique(labels)}')
     return out
+
+
+def enlarge(picture, labels, scale):
+    """
+    Scale a picture (bilinear) and its labels (nearest pixel) by 'scale'.
+
+    The new size is rounded to whole multiples of 32 pixels, as the networks need.
+    """
+    if scale == 1:
+        return picture, labels
+    h, w = labels.shape
+    size = (32 * max(1, round(w * scale / 32)), 32 * max(1, round(h * scale / 32)))
+    picture = np.asarray(Image.fromarray(np.ascontiguousarray(picture)).resize(
+        size, Image.BILINEAR))
+    if labels.min(initial=0) < 0:                          # no labels: all -1
+        return picture, np.full(picture.shape[:2], -1, np.int64)
+    labels = Image.fromarray(np.ascontiguousarray(labels).astype(np.uint8))
+    return picture, np.asarray(labels.resize(size, Image.NEAREST)).astype(np.int64)
+
+
+def names_in_plots(folder, plots):
+    """Return the picture names of a simulated dataset folder taken in the given plots."""
+    plots = {str(p) for p in plots}
+    with open(Path(folder) / 'pictures.csv', newline='') as f:
+        return [row['name'] for row in csv.DictReader(f) if row['plot'] in plots]
 
 
 def normalise(picture):
@@ -83,14 +114,16 @@ class PhenoBench(torch.utils.data.Dataset):
 
     crop: None for whole pictures, else the side of the random training squares (the
     random views and colours are used only then). The test split has no labels: its label
-    tensor is all -1.
+    tensor is all -1. scale: every picture is first enlarged by this. names: only these
+    pictures, in this order (default: all, sorted by name).
     """
 
-    def __init__(self, root, split, crop=None, seed=0, limit=0):
-        self.root, self.split, self.crop = Path(root), split, crop
+    def __init__(self, root, split, crop=None, seed=0, limit=0, scale=1.0, names=None):
+        self.root, self.split, self.crop, self.scale = Path(root), split, crop, scale
         self.images = self.root / split / 'images'
         self.labels = self.root / split / 'semantics'
-        self.names = sorted(p.name for p in self.images.glob('*.png'))
+        self.names = (list(names) if names is not None else
+                      sorted(p.name for p in self.images.glob('*.png')))
         if limit:
             self.names = self.names[:limit]
         if not self.names:
@@ -109,6 +142,7 @@ class PhenoBench(torch.utils.data.Dataset):
             labels = three_classes(Image.open(self.labels / name))
         else:
             labels = np.full(picture.shape[:2], -1, np.int64)
+        picture, labels = enlarge(picture, labels, self.scale)
         if self.crop:
             # a different random draw for every picture and epoch, the same for a rerun
             rng = np.random.default_rng([self.seed, self.epoch, index])
